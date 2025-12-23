@@ -3,127 +3,273 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Code Parliament Dashboard</title>
+  <title>Code Parliament - AI Code Review by 3 Expert Agents</title>
+  <meta name="description" content="Get your code reviewed by 3 AI experts: The Architect, The Critic, and The Pragmatist. Achieve 95% code quality automatically.">
   <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>Code Parliament</h1>
-      <div class="status-badge" id="status-badge">Loading...</div>
-    </header>
+  <div id="app">
+    <!-- Navigation -->
+    <nav class="nav">
+      <div class="nav-container">
+        <div class="nav-brand">
+          <span class="logo">Code Parliament</span>
+        </div>
+        <div class="nav-links">
+          <a href="#features">Features</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#docs">Docs</a>
+          <a href="/login" class="btn btn-ghost">Sign In</a>
+          <a href="/signup" class="btn btn-primary">Get Started</a>
+        </div>
+      </div>
+    </nav>
 
-    <main>
-      <!-- Score Section -->
-      <section class="score-section">
-        <div class="score-card main-score">
-          <div class="score-value" id="main-score">--</div>
-          <div class="score-label">Project Score</div>
-          <div class="score-target">Target: <span id="target-score">95</span>%</div>
+    <!-- Hero Section -->
+    <section class="hero">
+      <div class="hero-content">
+        <div class="hero-badge">Now with Claude Code Integration</div>
+        <h1>3 AI Experts.<br>One Verdict.</h1>
+        <p class="hero-subtitle">
+          Your code gets reviewed by The Architect, The Critic, and The Pragmatist.
+          They debate. They vote. You ship better code.
+        </p>
+        <div class="hero-cta">
+          <a href="/signup" class="btn btn-primary btn-lg">Start Free Trial</a>
+          <a href="#demo" class="btn btn-ghost btn-lg">See Demo</a>
         </div>
-
-        <div class="agent-scores">
-          <div class="score-card agent">
-            <div class="agent-icon">Architect</div>
-            <div class="score-value" id="architect-avg">--</div>
+        <div class="hero-stats">
+          <div class="stat">
+            <span class="stat-value">50K+</span>
+            <span class="stat-label">Files Reviewed</span>
           </div>
-          <div class="score-card agent">
-            <div class="agent-icon">Critic</div>
-            <div class="score-value" id="critic-avg">--</div>
+          <div class="stat">
+            <span class="stat-value">95%</span>
+            <span class="stat-label">Quality Target</span>
           </div>
-          <div class="score-card agent">
-            <div class="agent-icon">Pragmatist</div>
-            <div class="score-value" id="pragmatist-avg">--</div>
+          <div class="stat">
+            <span class="stat-value">3</span>
+            <span class="stat-label">AI Agents</span>
           </div>
         </div>
-      </section>
-
-      <!-- Stats Section -->
-      <section class="stats-section">
-        <div class="stat-card">
-          <div class="stat-value" id="files-analyzed">0</div>
-          <div class="stat-label">Files Analyzed</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" id="files-passing">0</div>
-          <div class="stat-label">Passing</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" id="files-failing">0</div>
-          <div class="stat-label">Need Work</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" id="today-cost">$0.00</div>
-          <div class="stat-label">Today's Cost</div>
-        </div>
-      </section>
-
-      <!-- Priority Fixes -->
-      <section class="priority-section">
-        <h2>Priority Fixes</h2>
-        <div class="priority-list" id="priority-list">
-          <div class="empty-state">No issues found</div>
-        </div>
-      </section>
-
-      <!-- Settings Section -->
-      <section class="settings-section">
-        <h2>Settings</h2>
-        <form id="settings-form">
-          <div class="form-group">
-            <label for="base-url">API Base URL</label>
-            <input type="url" id="base-url" placeholder="https://api.anthropic.com">
+      </div>
+      <div class="hero-visual">
+        <div class="code-review-card">
+          <div class="card-header">
+            <span class="file-name">src/auth/login.ts</span>
+            <span class="score score-warning">73%</span>
           </div>
-          <div class="form-group">
-            <label for="model">Model</label>
-            <select id="model">
-              <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
-              <option value="claude-opus-4-20250514">Claude Opus 4</option>
-              <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
-              <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku</option>
-              <option value="claude-3-opus-20240229">Claude 3 Opus</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="api-key">API Key (leave empty to keep current)</label>
-            <input type="password" id="api-key" placeholder="sk-ant-...">
-          </div>
-          <div class="form-group">
-            <label for="target-score-input">Target Score</label>
-            <input type="number" id="target-score-input" min="0" max="100" value="95">
-          </div>
-          <div class="form-group">
-            <h3>Agent Weights</h3>
-            <div class="weight-sliders">
-              <div class="weight-slider">
-                <label>Architect: <span id="architect-weight-val">1.0</span></label>
-                <input type="range" id="architect-weight" min="0" max="2" step="0.1" value="1.0">
-              </div>
-              <div class="weight-slider">
-                <label>Critic: <span id="critic-weight-val">1.2</span></label>
-                <input type="range" id="critic-weight" min="0" max="2" step="0.1" value="1.2">
-              </div>
-              <div class="weight-slider">
-                <label>Pragmatist: <span id="pragmatist-weight-val">0.8</span></label>
-                <input type="range" id="pragmatist-weight" min="0" max="2" step="0.1" value="0.8">
-              </div>
+          <div class="agents-row">
+            <div class="agent">
+              <div class="agent-icon architect">A</div>
+              <div class="agent-name">Architect</div>
+              <div class="agent-score">78%</div>
+            </div>
+            <div class="agent">
+              <div class="agent-icon critic">C</div>
+              <div class="agent-name">Critic</div>
+              <div class="agent-score">65%</div>
+            </div>
+            <div class="agent">
+              <div class="agent-icon pragmatist">P</div>
+              <div class="agent-name">Pragmatist</div>
+              <div class="agent-score">82%</div>
             </div>
           </div>
-          <button type="submit" class="btn-primary">Save Settings</button>
-        </form>
-      </section>
-
-      <!-- File Verdicts -->
-      <section class="verdicts-section">
-        <h2>File Verdicts</h2>
-        <div class="verdicts-list" id="verdicts-list">
-          <div class="empty-state">No files analyzed yet</div>
+          <div class="verdict">
+            <div class="verdict-icon">!</div>
+            <div class="verdict-text">
+              <strong>Race condition detected</strong>
+              <span>Token refresh can be called multiple times</span>
+            </div>
+          </div>
         </div>
-      </section>
-    </main>
+      </div>
+    </section>
 
-    <footer>
-      <p>Code Parliament v1.0.0 | <a href="#" id="refresh-btn">Refresh</a></p>
+    <!-- How It Works -->
+    <section class="section" id="how-it-works">
+      <div class="container">
+        <h2 class="section-title">How It Works</h2>
+        <p class="section-subtitle">Simple setup. Powerful results.</p>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-number">1</div>
+            <h3>Connect</h3>
+            <p>Add one line to your Claude Code settings. That's it.</p>
+            <div class="code-block">
+              <pre><code>"code-parliament": { "command": "npx", "args": ["-y", "code-parliament"] }</code></pre>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-number">2</div>
+            <h3>Code</h3>
+            <p>Write code as usual. Parliament watches in the background.</p>
+          </div>
+          <div class="step">
+            <div class="step-number">3</div>
+            <h3>Review</h3>
+            <p>3 agents analyze, debate, and deliver a consensus verdict.</p>
+          </div>
+          <div class="step">
+            <div class="step-number">4</div>
+            <h3>Ship</h3>
+            <p>Hit 95% approval. Ship with confidence.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Agents Section -->
+    <section class="section section-dark" id="features">
+      <div class="container">
+        <h2 class="section-title">Meet Your Reviewers</h2>
+        <p class="section-subtitle">Three perspectives. Complete coverage.</p>
+
+        <div class="agents-grid">
+          <div class="agent-card">
+            <div class="agent-avatar architect">A</div>
+            <h3>The Architect</h3>
+            <p class="agent-focus">Patterns & Scalability</p>
+            <ul class="agent-checks">
+              <li>Is the code modular?</li>
+              <li>Are patterns consistent?</li>
+              <li>Will this scale?</li>
+              <li>Is there tech debt?</li>
+            </ul>
+            <div class="agent-quote">
+              "This singleton will cause problems when you need to test."
+            </div>
+          </div>
+
+          <div class="agent-card featured">
+            <div class="agent-avatar critic">C</div>
+            <h3>The Critic</h3>
+            <p class="agent-focus">Bugs & Security</p>
+            <ul class="agent-checks">
+              <li>Are there race conditions?</li>
+              <li>Security vulnerabilities?</li>
+              <li>Unhandled edge cases?</li>
+              <li>Error handling?</li>
+            </ul>
+            <div class="agent-quote">
+              "Line 47: SQL injection risk. User input not sanitized."
+            </div>
+          </div>
+
+          <div class="agent-card">
+            <div class="agent-avatar pragmatist">P</div>
+            <h3>The Pragmatist</h3>
+            <p class="agent-focus">Simplicity & Shipping</p>
+            <ul class="agent-checks">
+              <li>Is this overengineered?</li>
+              <li>Can a junior understand it?</li>
+              <li>Does it solve the problem?</li>
+              <li>Can we ship this?</li>
+            </ul>
+            <div class="agent-quote">
+              "This abstraction is unnecessary. Just use a simple function."
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pricing Section -->
+    <section class="section" id="pricing">
+      <div class="container">
+        <h2 class="section-title">Simple Pricing</h2>
+        <p class="section-subtitle">Start free. Scale as you grow.</p>
+
+        <div class="pricing-grid">
+          <div class="pricing-card">
+            <h3>Free</h3>
+            <div class="price">$0<span>/month</span></div>
+            <ul class="pricing-features">
+              <li>100 files/month</li>
+              <li>3 default agents</li>
+              <li>Basic verdicts</li>
+              <li>Community support</li>
+            </ul>
+            <a href="/signup" class="btn btn-ghost btn-block">Get Started</a>
+          </div>
+
+          <div class="pricing-card featured">
+            <div class="popular-badge">Most Popular</div>
+            <h3>Pro</h3>
+            <div class="price">$19<span>/month</span></div>
+            <ul class="pricing-features">
+              <li>2,000 files/month</li>
+              <li>Custom agent weights</li>
+              <li>Priority queue</li>
+              <li>Dashboard analytics</li>
+              <li>Email support</li>
+            </ul>
+            <a href="/signup?plan=pro" class="btn btn-primary btn-block">Start Free Trial</a>
+          </div>
+
+          <div class="pricing-card">
+            <h3>Team</h3>
+            <div class="price">$49<span>/month</span></div>
+            <ul class="pricing-features">
+              <li>10,000 files/month</li>
+              <li>5 team members</li>
+              <li>GitHub integration</li>
+              <li>CI/CD webhooks</li>
+              <li>Priority support</li>
+            </ul>
+            <a href="/signup?plan=team" class="btn btn-ghost btn-block">Contact Sales</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="section section-cta">
+      <div class="container">
+        <h2>Ship Better Code Today</h2>
+        <p>Join thousands of developers using Code Parliament</p>
+        <a href="/signup" class="btn btn-primary btn-lg">Start Free Trial</a>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="container">
+        <div class="footer-grid">
+          <div class="footer-brand">
+            <span class="logo">Code Parliament</span>
+            <p>AI-powered code review by committee.</p>
+          </div>
+          <div class="footer-links">
+            <h4>Product</h4>
+            <a href="#features">Features</a>
+            <a href="#pricing">Pricing</a>
+            <a href="/docs">Documentation</a>
+            <a href="/changelog">Changelog</a>
+          </div>
+          <div class="footer-links">
+            <h4>Company</h4>
+            <a href="/about">About</a>
+            <a href="/blog">Blog</a>
+            <a href="/careers">Careers</a>
+            <a href="/contact">Contact</a>
+          </div>
+          <div class="footer-links">
+            <h4>Legal</h4>
+            <a href="/privacy">Privacy</a>
+            <a href="/terms">Terms</a>
+            <a href="/security">Security</a>
+          </div>
+        </div>
+        <div class="footer-bottom">
+          <p>&copy; 2024 Code Parliament. All rights reserved.</p>
+        </div>
+      </div>
     </footer>
   </div>
 

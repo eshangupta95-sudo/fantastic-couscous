@@ -1,10 +1,12 @@
 # Code Parliament
 
-An MCP (Model Context Protocol) server that runs 3 AI agents in the background to continuously review, rate, and debate your code quality. Integrates with Claude Code to help achieve 95% code satisfaction.
+An MCP server that analyzes your code and provides quality verdicts. When issues are found, Claude automatically fixes them - zero friction!
 
-## Quick Start (1 Step!)
+## Quick Start
 
-Add this to your Claude Code settings (`~/.claude/settings.json`):
+### Option 1: MCP Tool (Claude calls when needed)
+
+Add to `~/.claude/settings.json`:
 
 ```json
 {
@@ -17,121 +19,16 @@ Add this to your Claude Code settings (`~/.claude/settings.json`):
 }
 ```
 
-Restart Claude Code. Done! Parliament is now reviewing your code.
+Then in Claude Code, you can ask:
+- "Analyze this file with Parliament"
+- "Check the code quality of src/app.ts"
+- "Get Parliament verdict for all my changes"
 
-> **Note**: Uses your existing `ANTHROPIC_API_KEY` environment variable.
+Claude will use the `parliament_analyze` tool to check your code.
 
-## Features
+### Option 2: Auto-Fix Mode (Fully Automatic)
 
-- **3 AI Agents** with distinct perspectives:
-  - **The Architect** - Focuses on patterns, scalability, and architecture
-  - **The Critic** - Finds bugs, security issues, and edge cases
-  - **The Pragmatist** - Advocates for simplicity and shipping
-
-- **Background Analysis** - Daemon watches files and analyzes in the background
-- **Real-time Dashboard** - Web UI to view scores, settings, and configure the system
-- **MCP Integration** - Tools for Claude to check status, get verdicts, and more
-- **Auto-notifications** - Alerts Claude when code needs attention
-- **Weighted Voting** - Configurable agent weights for conflict resolution
-- **Cost Tracking** - Daily cost limits and usage tracking
-
-## Installation
-
-```bash
-cd code-parliament
-npm install
-npm run build
-```
-
-## Quick Start
-
-### 1. Set your API key
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-```
-
-### 2. Run the daemon
-
-```bash
-# Watch current directory
-npm start
-
-# Or watch a specific project
-npm start /path/to/your/project
-```
-
-### 3. Open the dashboard
-
-Visit http://localhost:3377 to see the dashboard.
-
-### 4. Configure Claude Code
-
-Add to your `~/.claude/settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "code-parliament": {
-      "command": "node",
-      "args": ["/path/to/code-parliament/dist/index.js", "${workspaceFolder}"]
-    }
-  }
-}
-```
-
-## MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `parliament_status` | Get overall project health and priority fixes |
-| `parliament_verdict` | Get detailed verdict for a specific file |
-| `parliament_debate` | View agent debate transcript |
-| `parliament_ignore` | Ignore a specific rule for a file |
-| `parliament_config` | View or update configuration |
-| `parliament_alerts` | Get and clear pending alerts |
-
-## Dashboard Settings
-
-The dashboard at http://localhost:3377 allows you to:
-
-- **View project score** and individual file verdicts
-- **Change API Base URL** - Point to a different API endpoint
-- **Change Model** - Select which Claude model to use
-- **Set Target Score** - Configure the 95% threshold
-- **Adjust Agent Weights** - Give more influence to certain agents
-- **View Cost Tracking** - Monitor daily API costs
-
-## Configuration
-
-Configuration is stored in `~/.parliament/config.json` or `<project>/.parliament/config.json`.
-
-```json
-{
-  "api": {
-    "baseUrl": "https://api.anthropic.com",
-    "model": "claude-sonnet-4-20250514"
-  },
-  "analysis": {
-    "targetScore": 95,
-    "maxIterationsPerFile": 3,
-    "debounceMs": 2000
-  },
-  "weights": {
-    "architect": 1.0,
-    "critic": 1.2,
-    "pragmatist": 0.8
-  },
-  "limits": {
-    "dailyCostLimit": 5.0,
-    "maxFileSizeKb": 100
-  }
-}
-```
-
-## Auto-Notification Setup
-
-To have Claude automatically receive Parliament alerts, add this hook to `~/.claude/settings.json`:
+Add to `~/.claude/settings.json`:
 
 ```json
 {
@@ -139,75 +36,98 @@ To have Claude automatically receive Parliament alerts, add this hook to `~/.cla
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",
-        "command": "node /path/to/code-parliament/dist/notify.js",
-        "timeout": 5000
+        "command": "npx -y code-parliament-autofix",
+        "timeout": 10000
       }
     ]
   }
 }
 ```
 
+Now whenever Claude writes code:
+1. Parliament automatically analyzes the file
+2. If issues found, Claude immediately fixes them
+3. No interaction needed - it just works!
+
 ## How It Works
 
-1. **File Watcher** - Monitors your project for changes
-2. **Job Queue** - Debounces and queues analysis jobs
-3. **Parallel Analysis** - All 3 agents analyze files simultaneously
-4. **Conflict Resolution** - Weighted voting resolves disagreements
-5. **Cache Layer** - SQLite stores verdicts for instant retrieval
-6. **MCP Server** - Claude Code queries cached verdicts (instant)
-7. **Alerts** - Low-scoring files trigger alerts for Claude
+### MCP Tools Available
 
-## Agent Personalities
+| Tool | Description |
+|------|-------------|
+| `parliament_analyze` | Analyze a file and get verdict with issues |
+| `parliament_status` | Get status of all analyzed files |
+| `parliament_get_verdict` | Get cached verdict for a specific file |
 
-### The Architect
-- Questions: Is this modular? Will it scale? Does it create tech debt?
-- Scores high for: Clean patterns, separation of concerns
-- Scores low for: Tight coupling, circular dependencies
+### What Gets Checked
 
-### The Critic
-- Questions: Are there bugs? Security issues? Edge cases?
-- Scores high for: Robust error handling, secure code
-- Scores low for: Race conditions, injection vulnerabilities
+- **Critical**: Empty catch blocks, hardcoded secrets
+- **High**: console.log statements, `any` types
+- **Medium**: TODO/FIXME comments, long lines
 
-### The Pragmatist
-- Questions: Is this overengineered? Can a junior understand it?
-- Scores high for: Simple, readable, maintainable code
-- Scores low for: Unnecessary abstractions, clever tricks
-
-## Safeguards
-
-- **Max iterations per file** - Prevents infinite loops (default: 3)
-- **Daily cost limit** - Stops analysis when limit reached (default: $5)
-- **Confidence threshold** - Ignores low-confidence verdicts
-- **User override** - Ignore specific rules with `parliament_ignore`
-- **Deadlock resolution** - Pragmatist wins ties by default
-
-## API Reference
-
-### REST Endpoints
+### Example Response
 
 ```
-GET  /api/health        - System health
-GET  /api/status        - Project score and stats
-GET  /api/verdicts      - All file verdicts
-GET  /api/verdicts/:file - Single file verdict
-GET  /api/config        - Current configuration
-POST /api/config        - Update configuration
-POST /api/analyze       - Trigger analysis for a file
-GET  /api/costs         - Cost tracking data
+## Code Parliament Verdict for src/utils/api.ts
+
+**Score: 78/100** ⚠️
+
+**Summary:** Code is acceptable but has some issues to address.
+
+### Issues Found (3)
+
+1. 🔴 **CRITICAL** (line 45)
+   Empty catch block swallows errors silently
+   💡 *Suggestion:* Add error logging: console.error('Error:', error);
+
+2. 🟠 **HIGH** (line 23)
+   Debug console.log should not be in production code
+   💡 *Suggestion:* Remove this console.log statement
+
+3. 🟠 **HIGH** (line 67)
+   "any" type on "response" removes type safety
+   💡 *Suggestion:* Replace "any" with the appropriate type
 ```
 
 ## Development
 
 ```bash
+# Install dependencies
+npm install
+
+# Build MVP (simple MCP + autofix)
+npm run build
+
 # Run in development mode
 npm run dev
 
-# Build
-npm run build
+# Build full version (with server, dashboard, etc)
+npm run build:full
+```
 
-# Run tests
-npm test
+## Architecture
+
+```
+┌─────────────────┐     ┌───────────────────┐
+│   Claude Code   │────▶│  MCP Server       │
+│                 │     │  (parliament)     │
+│   Writes file   │     │                   │
+└─────────────────┘     │  Analyzes code    │
+         │              │  Returns verdict  │
+         │              └───────────────────┘
+         ▼
+┌─────────────────┐
+│   Auto-Fix Hook │
+│                 │
+│  Reads file     │
+│  Finds issues   │
+│  Tells Claude   │
+│  to fix them    │
+└─────────────────┘
+         │
+         ▼
+    Claude fixes
+    automatically!
 ```
 
 ## License
