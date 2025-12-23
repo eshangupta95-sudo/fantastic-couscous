@@ -28,8 +28,9 @@
  */
 
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
+import { execSync } from 'child_process';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, dirname } from 'path';
 
 // Loop detection: track recently analyzed files
 const LOCK_DIR = join(tmpdir(), 'parliament-locks');
@@ -59,6 +60,59 @@ function markAsAnalyzed(filePath: string): void {
     writeFileSync(getLockFile(filePath), Date.now().toString());
   } catch {
     // Ignore errors
+  }
+}
+
+// Find project root (where package.json or tsconfig.json lives)
+function findProjectRoot(filePath: string): string | null {
+  let dir = dirname(filePath);
+  for (let i = 0; i < 10; i++) {
+    if (existsSync(join(dir, 'package.json')) || existsSync(join(dir, 'tsconfig.json'))) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+// Check for cross-file issues by running type check
+interface BuildResult {
+  success: boolean;
+  errors: Array<{ file: string; line: number; message: string }>;
+}
+
+function checkBuild(projectRoot: string): BuildResult {
+  try {
+    // Try tsc first (TypeScript projects)
+    if (existsSync(join(projectRoot, 'tsconfig.json'))) {
+      execSync('npx tsc --noEmit 2>&1', {
+        cwd: projectRoot,
+        timeout: 30000,
+        stdio: 'pipe',
+      });
+      return { success: true, errors: [] };
+    }
+    // For non-TS projects, we can't easily check cross-file issues
+    return { success: true, errors: [] };
+  } catch (error: unknown) {
+    const err = error as { stdout?: Buffer; stderr?: Buffer };
+    const output = (err.stdout?.toString() || '') + (err.stderr?.toString() || '');
+
+    // Parse TypeScript errors
+    const errors: BuildResult['errors'] = [];
+    const errorRegex = /(.+)\((\d+),\d+\):\s*error\s+TS\d+:\s*(.+)/g;
+    let match;
+    while ((match = errorRegex.exec(output)) !== null) {
+      errors.push({
+        file: match[1],
+        line: parseInt(match[2], 10),
+        message: match[3],
+      });
+    }
+
+    return { success: false, errors: errors.slice(0, 5) }; // Limit to 5 errors
   }
 }
 
@@ -220,7 +274,27 @@ async function main() {
     const issues = analyzeFile(filePath);
     const remaining = issues.filter(i => i.severity === 'critical' || i.severity === 'high');
 
-    if (remaining.length === 0) {
+    // Check for cross-file issues (did our fix break imports elsewhere?)
+    const projectRoot = findProjectRoot(filePath);
+    let buildResult: BuildResult = { success: true, errors: [] };
+
+    if (projectRoot) {
+      buildResult = checkBuild(projectRoot);
+    }
+
+    if (!buildResult.success && buildResult.errors.length > 0) {
+      // Fix caused issues in other files!
+      let message = `🔴 **Parliament: Fix caused issues in other files!**\n\n`;
+      buildResult.errors.forEach((err, i) => {
+        message += `${i + 1}. \`${err.file}\` line ${err.line}: ${err.message}\n`;
+      });
+      message += `\n**Fix these cross-file errors now.**`;
+
+      console.log(JSON.stringify({
+        decision: 'approve',
+        message,
+      }));
+    } else if (remaining.length === 0) {
       console.log(JSON.stringify({
         decision: 'approve',
         message: `✅ Parliament verified: \`${filePath}\` - all issues resolved!`,
