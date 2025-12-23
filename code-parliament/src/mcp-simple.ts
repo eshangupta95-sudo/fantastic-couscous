@@ -12,9 +12,58 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
+import { join, extname } from 'path';
+
+// Code extensions to scan
+const CODE_EXTENSIONS = new Set([
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
+  '.py', '.go', '.rs', '.java', '.kt', '.swift',
+  '.c', '.cpp', '.h', '.hpp', '.cs', '.rb', '.php',
+]);
 
 // Simple in-memory storage for verdicts
 const verdicts = new Map<string, any>();
+
+// Recursively find all code files in a directory
+function findCodeFiles(dir: string, files: string[] = [], maxFiles = 100): string[] {
+  if (files.length >= maxFiles) return files;
+  if (!existsSync(dir)) return files;
+
+  try {
+    const entries = readdirSync(dir);
+
+    for (const entry of entries) {
+      if (files.length >= maxFiles) break;
+
+      // Skip common non-code directories
+      if (['node_modules', '.git', 'dist', 'build', '.next', 'coverage', '__pycache__', 'venv'].includes(entry)) {
+        continue;
+      }
+
+      const fullPath = join(dir, entry);
+
+      try {
+        const stat = statSync(fullPath);
+
+        if (stat.isDirectory()) {
+          findCodeFiles(fullPath, files, maxFiles);
+        } else if (stat.isFile()) {
+          const ext = extname(entry);
+          if (CODE_EXTENSIONS.has(ext)) {
+            files.push(fullPath);
+          }
+        }
+      } catch {
+        // Skip files we can't access
+      }
+    }
+  } catch {
+    // Skip directories we can't read
+  }
+
+  return files;
+}
 
 // Mock analysis function (replace with real LLM calls later)
 async function analyzeCode(filePath: string, content: string): Promise<{
@@ -168,6 +217,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['file_path'],
         },
       },
+      {
+        name: 'parliament_scan_project',
+        description: 'Scan an entire project directory and find all files with issues. Use this when adding Parliament to an existing codebase. Returns a prioritized list of files that need attention.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            directory: {
+              type: 'string',
+              description: 'Path to the project directory to scan',
+            },
+            max_files: {
+              type: 'number',
+              description: 'Maximum number of files to scan (default: 50)',
+            },
+          },
+          required: ['directory'],
+        },
+      },
     ],
   };
 });
@@ -300,6 +367,120 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           {
             type: 'text',
             text: JSON.stringify(verdict, null, 2),
+          },
+        ],
+      };
+    }
+
+    case 'parliament_scan_project': {
+      const directory = args?.directory as string;
+      const maxFiles = (args?.max_files as number) || 50;
+
+      if (!directory) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ error: 'directory is required' }),
+            },
+          ],
+        };
+      }
+
+      // Find all code files
+      const files = findCodeFiles(directory, [], maxFiles);
+
+      if (files.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `## Parliament Project Scan\n\nNo code files found in \`${directory}\``,
+            },
+          ],
+        };
+      }
+
+      // Analyze each file
+      const results: Array<{
+        file: string;
+        score: number;
+        issueCount: number;
+        criticalCount: number;
+      }> = [];
+
+      for (const file of files) {
+        try {
+          const content = readFileSync(file, 'utf-8');
+          const result = await analyzeCode(file, content);
+
+          // Store verdict
+          verdicts.set(file, {
+            ...result,
+            analyzedAt: new Date().toISOString(),
+          });
+
+          const criticalCount = result.issues.filter(i => i.severity === 'high').length;
+
+          results.push({
+            file: file.replace(directory, '.'),
+            score: result.score,
+            issueCount: result.issues.length,
+            criticalCount,
+          });
+        } catch {
+          // Skip files we can't read
+        }
+      }
+
+      // Sort by score (lowest first) to prioritize problem files
+      results.sort((a, b) => a.score - b.score);
+
+      // Build response
+      const avgScore = Math.round(
+        results.reduce((sum, r) => sum + r.score, 0) / results.length
+      );
+      const totalIssues = results.reduce((sum, r) => sum + r.issueCount, 0);
+      const criticalFiles = results.filter(r => r.criticalCount > 0);
+
+      let response = `## 🏛️ Parliament Project Scan Complete\n\n`;
+      response += `**Directory:** \`${directory}\`\n`;
+      response += `**Files Scanned:** ${results.length}\n`;
+      response += `**Average Score:** ${avgScore}/100 ${avgScore >= 90 ? '✅' : avgScore >= 70 ? '⚠️' : '❌'}\n`;
+      response += `**Total Issues:** ${totalIssues}\n\n`;
+
+      if (criticalFiles.length > 0) {
+        response += `### 🔴 Critical Issues (${criticalFiles.length} files)\n\n`;
+        response += `These files have high-severity issues that should be fixed first:\n\n`;
+        criticalFiles.slice(0, 10).forEach((r, i) => {
+          response += `${i + 1}. \`${r.file}\` - Score: ${r.score}/100, ${r.criticalCount} critical issue(s)\n`;
+        });
+        response += `\n`;
+      }
+
+      const problemFiles = results.filter(r => r.score < 70);
+      if (problemFiles.length > 0) {
+        response += `### ⚠️ Files Needing Attention (score < 70)\n\n`;
+        problemFiles.slice(0, 15).forEach((r, i) => {
+          response += `${i + 1}. \`${r.file}\` - Score: ${r.score}/100 (${r.issueCount} issues)\n`;
+        });
+        response += `\n`;
+      }
+
+      const goodFiles = results.filter(r => r.score >= 90);
+      response += `### ✅ Clean Files: ${goodFiles.length}/${results.length}\n\n`;
+
+      if (totalIssues > 0) {
+        response += `---\n\n`;
+        response += `**Next Steps:** Ask me to "fix the issues in [filename]" for any file above, `;
+        response += `or say "fix all critical issues" to address the most important problems first.\n`;
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: response,
           },
         ],
       };
