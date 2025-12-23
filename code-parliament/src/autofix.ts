@@ -19,9 +19,48 @@
  *     ]
  *   }
  * }
+ *
+ * Edge cases handled:
+ * - Loop detection: Won't analyze same file twice within 5 seconds
+ * - Ignore comments: Add "parliament-ignore" to skip a line
+ * - Only analyzes code files (not config/markdown)
+ * - Max 1 fix cycle per file to prevent infinite loops
  */
 
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
+// Loop detection: track recently analyzed files
+const LOCK_DIR = join(tmpdir(), 'parliament-locks');
+const LOCK_DURATION_MS = 5000; // 5 seconds cooldown
+
+function getLockFile(filePath: string): string {
+  const safeName = filePath.replace(/[^a-zA-Z0-9]/g, '_');
+  return join(LOCK_DIR, `${safeName}.lock`);
+}
+
+function isRecentlyAnalyzed(filePath: string): boolean {
+  try {
+    mkdirSync(LOCK_DIR, { recursive: true });
+    const lockFile = getLockFile(filePath);
+    if (!existsSync(lockFile)) return false;
+
+    const lockTime = parseInt(readFileSync(lockFile, 'utf-8'), 10);
+    return Date.now() - lockTime < LOCK_DURATION_MS;
+  } catch {
+    return false;
+  }
+}
+
+function markAsAnalyzed(filePath: string): void {
+  try {
+    mkdirSync(LOCK_DIR, { recursive: true });
+    writeFileSync(getLockFile(filePath), Date.now().toString());
+  } catch {
+    // Ignore errors
+  }
+}
 
 // Code extensions to analyze
 const CODE_EXTENSIONS = new Set([
@@ -48,6 +87,12 @@ function analyzeFile(filePath: string): Issue[] {
   lines.forEach((line, idx) => {
     const lineNum = idx + 1;
     const trimmed = line.trim();
+
+    // Skip lines with parliament-ignore comment
+    const prevLine = idx > 0 ? lines[idx - 1] : '';
+    if (line.includes('parliament-ignore') || prevLine.includes('parliament-ignore-next-line')) {
+      return;
+    }
 
     // Critical: Empty catch blocks (swallows errors)
     if (trimmed.match(/catch\s*\([^)]*\)\s*\{\s*\}/) ||
@@ -169,6 +214,30 @@ async function main() {
     return;
   }
 
+  // Loop detection: skip if recently analyzed (prevents infinite fix loops)
+  if (isRecentlyAnalyzed(filePath)) {
+    // File was just analyzed - this is likely a fix cycle, verify and report
+    const issues = analyzeFile(filePath);
+    const remaining = issues.filter(i => i.severity === 'critical' || i.severity === 'high');
+
+    if (remaining.length === 0) {
+      console.log(JSON.stringify({
+        decision: 'approve',
+        message: `✅ Parliament verified: \`${filePath}\` - all issues resolved!`,
+      }));
+    } else {
+      // Still has issues but we won't loop - just report
+      console.log(JSON.stringify({
+        decision: 'approve',
+        message: `⚠️ Parliament: \`${filePath}\` still has ${remaining.length} issue(s). Review manually or add \`parliament-ignore\` comment to skip.`,
+      }));
+    }
+    return;
+  }
+
+  // Mark file as analyzed (for loop detection)
+  markAsAnalyzed(filePath);
+
   // Analyze the file
   const issues = analyzeFile(filePath);
 
@@ -182,8 +251,12 @@ async function main() {
       message: instruction,
     }));
   } else {
-    // No issues - approve silently
-    console.log(JSON.stringify({ decision: 'approve' }));
+    // No issues - show success message
+    const fileName = filePath.split('/').pop();
+    console.log(JSON.stringify({
+      decision: 'approve',
+      message: `✅ Parliament: \`${fileName}\` looks good!`,
+    }));
   }
 }
 
