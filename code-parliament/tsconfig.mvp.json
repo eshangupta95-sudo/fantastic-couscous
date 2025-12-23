@@ -13,7 +13,9 @@
   "include": [
     "src/mcp-simple.ts",
     "src/autofix.ts",
-    "src/daemon-simple.ts"
+    "src/daemon-simple.ts",
+    "src/utils/json-parser.ts",
+    "src/utils/import-graph.ts"
   ],
   "exclude": [
     "node_modules"

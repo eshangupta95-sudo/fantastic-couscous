@@ -161,7 +161,28 @@ interface Issue {
   line: number;
   severity: 'critical' | 'high' | 'medium' | 'low';
   problem: string;
-  exactFix: string; // The exact code fix Claude should apply
+  exactFix: string;
+  confidence: number; // 0-1, only show issues with confidence >= 0.7
+  category: string;   // For deduplication
+}
+
+// Minimum confidence to report an issue
+const MIN_CONFIDENCE = 0.7;
+
+// Deduplicate issues by line + category
+function deduplicateIssues(issues: Issue[]): Issue[] {
+  const seen = new Map<string, Issue>();
+
+  for (const issue of issues) {
+    const key = `${issue.line}:${issue.category}`;
+    const existing = seen.get(key);
+
+    if (!existing || issue.confidence > existing.confidence) {
+      seen.set(key, issue);
+    }
+  }
+
+  return Array.from(seen.values());
 }
 
 // Analyze file and return concrete fixes
@@ -190,7 +211,7 @@ function analyzeFile(filePath: string): Issue[] {
       return;
     }
 
-    // Critical: Empty catch blocks (swallows errors)
+    // Critical: Empty catch blocks (swallows errors) - HIGH confidence
     if (trimmed.match(/catch\s*\([^)]*\)\s*\{\s*\}/) ||
         (trimmed.includes('catch') && lines[idx + 1]?.trim() === '}')) {
       issues.push({
@@ -198,20 +219,26 @@ function analyzeFile(filePath: string): Issue[] {
         severity: 'critical',
         problem: 'Empty catch block swallows errors silently',
         exactFix: `Add error logging: console.error('Error:', error);`,
+        confidence: 0.95,
+        category: 'error-handling',
       });
     }
 
-    // High: console.log in production code (skip in test files)
+    // High: console.log in production code (skip in test files) - MEDIUM confidence
+    // Could be intentional logging, so lower confidence
     if (line.includes('console.log(') && !line.includes('//') && !isTest) {
       issues.push({
         line: lineNum,
         severity: 'high',
         problem: 'Debug console.log should not be in production code',
         exactFix: 'Remove this console.log statement',
+        confidence: 0.75,
+        category: 'debug-code',
       });
     }
 
-    // High: Using 'any' type (skip in test files - often needed for mocks)
+    // High: Using 'any' type (skip in test files) - MEDIUM confidence
+    // Sometimes 'any' is intentional for complex generics
     if (line.includes(': any') && !line.includes('//') && !isTest) {
       const match = line.match(/(\w+)\s*:\s*any/);
       if (match) {
@@ -220,35 +247,53 @@ function analyzeFile(filePath: string): Issue[] {
           severity: 'high',
           problem: `"any" type on "${match[1]}" removes type safety`,
           exactFix: `Replace "any" with the appropriate type (string, number, object, etc.)`,
+          confidence: 0.80,
+          category: 'type-safety',
         });
       }
     }
 
-    // Medium: TODO/FIXME comments (lower severity, skip in test files)
+    // Medium: TODO/FIXME comments - LOW confidence (often intentional)
     if (trimmed.match(/\/\/\s*(TODO|FIXME|HACK|XXX):/i) && !isTest) {
       issues.push({
         line: lineNum,
         severity: 'medium',
         problem: 'Unresolved TODO/FIXME comment',
         exactFix: 'Implement the TODO or remove if already done',
+        confidence: 0.50, // Below threshold - won't be auto-fixed
+        category: 'todo',
       });
     }
 
-    // Medium: Hardcoded secrets/keys
+    // Critical: Hardcoded secrets/keys - HIGH confidence
     if (line.match(/(password|secret|api.?key|token)\s*[:=]\s*['"][^'"]+['"]/i) &&
-        !line.includes('process.env')) {
+        !line.includes('process.env') &&
+        !line.includes('example') &&
+        !line.includes('placeholder')) {
       issues.push({
         line: lineNum,
         severity: 'critical',
         problem: 'Possible hardcoded secret/credential',
         exactFix: 'Move to environment variable: process.env.YOUR_SECRET',
+        confidence: 0.90,
+        category: 'security',
       });
     }
   });
 
-  // Sort by severity
+  // Filter by confidence threshold
+  const confidentIssues = issues.filter(i => i.confidence >= MIN_CONFIDENCE);
+
+  // Deduplicate by line + category
+  const uniqueIssues = deduplicateIssues(confidentIssues);
+
+  // Sort by severity, then by confidence
   const severityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
-  return issues.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+  return uniqueIssues.sort((a, b) => {
+    const sevDiff = severityOrder[a.severity] - severityOrder[b.severity];
+    if (sevDiff !== 0) return sevDiff;
+    return b.confidence - a.confidence; // Higher confidence first
+  });
 }
 
 // Generate Claude instruction that triggers automatic fix
@@ -264,7 +309,8 @@ function generateAutoFixInstruction(filePath: string, issues: Issue[]): string {
 
   criticalIssues.slice(0, 3).forEach((issue, i) => {
     const icon = issue.severity === 'critical' ? '🔴' : '🟠';
-    instruction += `${i + 1}. ${icon} **Line ${issue.line}**: ${issue.problem}\n`;
+    const confidence = Math.round(issue.confidence * 100);
+    instruction += `${i + 1}. ${icon} **Line ${issue.line}** (${confidence}% confident): ${issue.problem}\n`;
     instruction += `   → **Fix**: ${issue.exactFix}\n\n`;
   });
 
