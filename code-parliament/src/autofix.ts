@@ -123,6 +123,40 @@ const CODE_EXTENSIONS = new Set([
   '.c', '.cpp', '.h', '.hpp', '.cs', '.rb', '.php',
 ]);
 
+// Files to skip (generated, minified, vendored, etc.)
+const SKIP_PATTERNS = [
+  /\.min\.(js|css)$/,          // Minified files
+  /\.bundle\./,                 // Bundled files
+  /\.generated\./,              // Generated files
+  /\.d\.ts$/,                   // TypeScript declarations
+  /[\\/]vendor[\\/]/,           // Vendored code
+  /[\\/]third_party[\\/]/,      // Third party code
+  /[\\/]dist[\\/]/,             // Build output
+  /[\\/]build[\\/]/,            // Build output
+  /[\\/]node_modules[\\/]/,     // Dependencies
+  /~$/,                         // Backup files
+  /\.swp$/,                     // Vim swap
+  /\.bak$/,                     // Backup files
+  /\.tmp$/,                     // Temp files
+  /\.lock$/,                    // Lock files
+  /-lock\./,                    // Lock files (package-lock, etc.)
+];
+
+// Max file size to analyze (100KB)
+const MAX_FILE_SIZE = 100 * 1024;
+
+// Check if file should be skipped
+function shouldSkipFile(filePath: string): boolean {
+  return SKIP_PATTERNS.some(pattern => pattern.test(filePath));
+}
+
+// Check if this is a test file (relaxed rules)
+function isTestFile(filePath: string): boolean {
+  return /\.(test|spec|e2e)\.(ts|tsx|js|jsx)$/.test(filePath) ||
+         /[\\/]__tests__[\\/]/.test(filePath) ||
+         /[\\/]test[\\/]/.test(filePath);
+}
+
 interface Issue {
   line: number;
   severity: 'critical' | 'high' | 'medium' | 'low';
@@ -134,9 +168,17 @@ interface Issue {
 function analyzeFile(filePath: string): Issue[] {
   if (!existsSync(filePath)) return [];
 
+  // Skip files matching skip patterns
+  if (shouldSkipFile(filePath)) return [];
+
   const content = readFileSync(filePath, 'utf-8');
+
+  // Skip files that are too large
+  if (content.length > MAX_FILE_SIZE) return [];
+
   const lines = content.split('\n');
   const issues: Issue[] = [];
+  const isTest = isTestFile(filePath);
 
   lines.forEach((line, idx) => {
     const lineNum = idx + 1;
@@ -159,8 +201,8 @@ function analyzeFile(filePath: string): Issue[] {
       });
     }
 
-    // High: console.log in production code
-    if (line.includes('console.log(') && !line.includes('//')) {
+    // High: console.log in production code (skip in test files)
+    if (line.includes('console.log(') && !line.includes('//') && !isTest) {
       issues.push({
         line: lineNum,
         severity: 'high',
@@ -169,8 +211,8 @@ function analyzeFile(filePath: string): Issue[] {
       });
     }
 
-    // High: Using 'any' type
-    if (line.includes(': any') && !line.includes('//')) {
+    // High: Using 'any' type (skip in test files - often needed for mocks)
+    if (line.includes(': any') && !line.includes('//') && !isTest) {
       const match = line.match(/(\w+)\s*:\s*any/);
       if (match) {
         issues.push({
@@ -182,8 +224,8 @@ function analyzeFile(filePath: string): Issue[] {
       }
     }
 
-    // Medium: TODO/FIXME comments
-    if (trimmed.match(/\/\/\s*(TODO|FIXME|HACK|XXX):/i)) {
+    // Medium: TODO/FIXME comments (lower severity, skip in test files)
+    if (trimmed.match(/\/\/\s*(TODO|FIXME|HACK|XXX):/i) && !isTest) {
       issues.push({
         line: lineNum,
         severity: 'medium',

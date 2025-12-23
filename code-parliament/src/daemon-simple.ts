@@ -14,13 +14,19 @@
  */
 
 import { watch, FSWatcher } from 'chokidar';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, lstatSync } from 'fs';
 import { join, extname, relative } from 'path';
 import { homedir } from 'os';
 
 // Cache location
 const CACHE_DIR = join(homedir(), '.parliament');
 const CACHE_FILE = join(CACHE_DIR, 'verdicts.json');
+
+// Max file size (100KB)
+const MAX_FILE_SIZE = 100 * 1024;
+
+// Cache TTL (7 days)
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Code extensions to watch
 const CODE_EXTENSIONS = new Set([
@@ -34,6 +40,43 @@ const IGNORED_DIRS = [
   'node_modules', '.git', 'dist', 'build', '.next',
   'coverage', '__pycache__', 'venv', '.venv', 'target',
 ];
+
+// File patterns to skip
+const SKIP_PATTERNS = [
+  /\.min\.(js|css)$/,
+  /\.bundle\./,
+  /\.generated\./,
+  /\.d\.ts$/,
+  /[\\/]vendor[\\/]/,
+  /[\\/]third_party[\\/]/,
+  /~$/,
+  /\.swp$/,
+  /\.bak$/,
+  /\.tmp$/,
+  /\.lock$/,
+  /-lock\./,
+];
+
+// Check if file should be skipped
+function shouldSkipFile(filePath: string): boolean {
+  return SKIP_PATTERNS.some(pattern => pattern.test(filePath));
+}
+
+// Check if path is a symlink
+function isSymlink(filePath: string): boolean {
+  try {
+    return lstatSync(filePath).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+// Check if this is a test file
+function isTestFile(filePath: string): boolean {
+  return /\.(test|spec|e2e)\.(ts|tsx|js|jsx)$/.test(filePath) ||
+         /[\\/]__tests__[\\/]/.test(filePath) ||
+         /[\\/]test[\\/]/.test(filePath);
+}
 
 interface Issue {
   severity: 'critical' | 'high' | 'medium' | 'low';
@@ -72,10 +115,11 @@ function hashContent(content: string): string {
 }
 
 // Analyze file content (heuristic)
-function analyzeFile(content: string): { score: number; issues: Issue[] } {
+function analyzeFile(content: string, filePath: string = ''): { score: number; issues: Issue[] } {
   const issues: Issue[] = [];
   let score = 100;
   const lines = content.split('\n');
+  const isTest = isTestFile(filePath);
 
   lines.forEach((line, idx) => {
     const lineNum = idx + 1;
@@ -96,8 +140,8 @@ function analyzeFile(content: string): { score: number; issues: Issue[] } {
       score -= 15;
     }
 
-    // console.log
-    if (line.includes('console.log(') && !line.includes('//')) {
+    // console.log (skip in test files)
+    if (line.includes('console.log(') && !line.includes('//') && !isTest) {
       issues.push({
         severity: 'low',
         line: lineNum,
@@ -107,8 +151,8 @@ function analyzeFile(content: string): { score: number; issues: Issue[] } {
       score -= 3;
     }
 
-    // any type
-    if (line.includes(': any') && !line.includes('//')) {
+    // any type (skip in test files)
+    if (line.includes(': any') && !line.includes('//') && !isTest) {
       issues.push({
         severity: 'medium',
         line: lineNum,
@@ -118,8 +162,8 @@ function analyzeFile(content: string): { score: number; issues: Issue[] } {
       score -= 5;
     }
 
-    // TODO/FIXME
-    if (trimmed.match(/\/\/\s*(TODO|FIXME|HACK|XXX):/i)) {
+    // TODO/FIXME (skip in test files)
+    if (trimmed.match(/\/\/\s*(TODO|FIXME|HACK|XXX):/i) && !isTest) {
       issues.push({
         severity: 'low',
         line: lineNum,
@@ -170,6 +214,24 @@ function saveCache(cache: CacheData): void {
   }
 }
 
+// Clean up old cache entries
+function cleanupCache(cache: CacheData): number {
+  const now = Date.now();
+  let removed = 0;
+
+  for (const [path, verdict] of Object.entries(cache.verdicts)) {
+    const age = now - new Date(verdict.analyzedAt).getTime();
+
+    // Remove if older than TTL or file no longer exists
+    if (age > CACHE_TTL_MS || !existsSync(path)) {
+      delete cache.verdicts[path];
+      removed++;
+    }
+  }
+
+  return removed;
+}
+
 // Main daemon class
 class ParliamentDaemon {
   private projectPath: string;
@@ -184,6 +246,13 @@ class ParliamentDaemon {
     const existingCache = loadCache();
     if (existingCache && existingCache.projectPath === projectPath) {
       this.cache = existingCache;
+
+      // Clean up old entries
+      const removed = cleanupCache(this.cache);
+      if (removed > 0) {
+        console.log(`Cleaned up ${removed} stale cache entries`);
+      }
+
       console.log(`Loaded ${Object.keys(this.cache.verdicts).length} cached verdicts`);
     } else {
       this.cache = {
@@ -238,10 +307,22 @@ class ParliamentDaemon {
     const ext = extname(filePath);
     if (!CODE_EXTENSIONS.has(ext)) return;
 
+    // Skip symlinks (prevent infinite loops)
+    if (isSymlink(filePath)) return;
+
+    // Skip generated/minified/temp files
+    if (shouldSkipFile(filePath)) return;
+
     this.filesWatched++;
 
     try {
       const content = readFileSync(filePath, 'utf-8');
+
+      // Skip files that are too large
+      if (content.length > MAX_FILE_SIZE) {
+        return;
+      }
+
       const fileHash = hashContent(content);
 
       // Skip if unchanged
@@ -251,7 +332,7 @@ class ParliamentDaemon {
       }
 
       // Analyze
-      const result = analyzeFile(content);
+      const result = analyzeFile(content, filePath);
       const relPath = relative(this.projectPath, filePath);
 
       this.cache.verdicts[filePath] = {
