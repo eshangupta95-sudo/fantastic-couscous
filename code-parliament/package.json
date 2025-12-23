@@ -6,7 +6,8 @@
   "main": "dist/index.js",
   "bin": {
     "code-parliament": "dist/mcp-simple.js",
-    "parliament-autofix": "dist/autofix.js"
+    "parliament-autofix": "dist/autofix.js",
+    "parliament-daemon": "dist/daemon-simple.js"
   },
   "files": [
     "dist",

@@ -12,7 +12,8 @@
   },
   "include": [
     "src/mcp-simple.ts",
-    "src/autofix.ts"
+    "src/autofix.ts",
+    "src/daemon-simple.ts"
   ],
   "exclude": [
     "node_modules"

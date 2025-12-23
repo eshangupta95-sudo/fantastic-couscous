@@ -14,6 +14,36 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { join, extname } from 'path';
+import { homedir } from 'os';
+
+// Shared cache with daemon
+const DAEMON_CACHE_FILE = join(homedir(), '.parliament', 'verdicts.json');
+
+interface DaemonCache {
+  projectPath: string;
+  verdicts: Record<string, {
+    score: number;
+    issues: Array<{ severity: string; line?: number; description: string; suggestion: string }>;
+    analyzedAt: string;
+  }>;
+  stats: {
+    filesWatched: number;
+    filesAnalyzed: number;
+    totalIssues: number;
+  };
+}
+
+// Load daemon cache if available
+function loadDaemonCache(): DaemonCache | null {
+  try {
+    if (existsSync(DAEMON_CACHE_FILE)) {
+      return JSON.parse(readFileSync(DAEMON_CACHE_FILE, 'utf-8'));
+    }
+  } catch {
+    // Ignore
+  }
+  return null;
+}
 
 // Code extensions to scan
 const CODE_EXTENSIONS = new Set([
@@ -235,6 +265,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ['directory'],
         },
       },
+      {
+        name: 'parliament_daemon_status',
+        description: 'Check if the Parliament daemon is running and get live stats. The daemon watches for file changes in real-time, even when files are edited outside of Claude.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
     ],
   };
 });
@@ -369,6 +407,73 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             text: JSON.stringify(verdict, null, 2),
           },
         ],
+      };
+    }
+
+    case 'parliament_daemon_status': {
+      const daemonCache = loadDaemonCache();
+
+      if (!daemonCache) {
+        let response = `## 🏛️ Parliament Daemon Status\n\n`;
+        response += `**Status:** ❌ Not Running\n\n`;
+        response += `The daemon watches for file changes in real-time, even when you edit files in VS Code or with git.\n\n`;
+        response += `### Start the Daemon\n\n`;
+        response += `\`\`\`bash\n`;
+        response += `npx parliament-daemon /path/to/your/project &\n`;
+        response += `\`\`\`\n\n`;
+        response += `Or run in a separate terminal:\n`;
+        response += `\`\`\`bash\n`;
+        response += `npx parliament-daemon .\n`;
+        response += `\`\`\`\n`;
+
+        return {
+          content: [{ type: 'text', text: response }],
+        };
+      }
+
+      // Daemon has data - check if it's recent
+      const lastUpdated = new Date(daemonCache.verdicts[Object.keys(daemonCache.verdicts)[0]]?.analyzedAt || 0);
+      const isRecent = Date.now() - lastUpdated.getTime() < 60000; // Within last minute
+
+      const verdictList = Object.entries(daemonCache.verdicts);
+      const avgScore = verdictList.length > 0
+        ? Math.round(verdictList.reduce((sum, [, v]) => sum + v.score, 0) / verdictList.length)
+        : 0;
+
+      let response = `## 🏛️ Parliament Daemon Status\n\n`;
+      response += `**Status:** ${isRecent ? '✅ Running' : '⚠️ Idle (no recent activity)'}\n`;
+      response += `**Project:** \`${daemonCache.projectPath}\`\n`;
+      response += `**Files Watched:** ${daemonCache.stats.filesWatched}\n`;
+      response += `**Files Analyzed:** ${daemonCache.stats.filesAnalyzed}\n`;
+      response += `**Total Issues:** ${daemonCache.stats.totalIssues}\n`;
+      response += `**Average Score:** ${avgScore}/100\n\n`;
+
+      // Show problem files from daemon cache
+      const problemFiles = verdictList
+        .filter(([, v]) => v.score < 70)
+        .sort((a, b) => a[1].score - b[1].score)
+        .slice(0, 10);
+
+      if (problemFiles.length > 0) {
+        response += `### ⚠️ Files Needing Attention\n\n`;
+        problemFiles.forEach(([path, v], i) => {
+          const shortPath = path.replace(daemonCache.projectPath, '.');
+          response += `${i + 1}. \`${shortPath}\` - Score: ${v.score}/100 (${v.issues.length} issues)\n`;
+        });
+      }
+
+      // Merge daemon verdicts into MCP cache for consistency
+      for (const [path, v] of verdictList) {
+        verdicts.set(path, {
+          score: v.score,
+          issues: v.issues,
+          summary: v.score >= 70 ? 'Acceptable' : 'Needs work',
+          analyzedAt: v.analyzedAt,
+        });
+      }
+
+      return {
+        content: [{ type: 'text', text: response }],
       };
     }
 
