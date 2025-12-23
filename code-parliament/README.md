@@ -2,6 +2,25 @@
 
 An MCP (Model Context Protocol) server that runs 3 AI agents in the background to continuously review, rate, and debate your code quality. Integrates with Claude Code to help achieve 95% code satisfaction.
 
+## Quick Start (1 Step!)
+
+Add this to your Claude Code settings (`~/.claude/settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "code-parliament": {
+      "command": "npx",
+      "args": ["-y", "code-parliament"]
+    }
+  }
+}
+```
+
+Restart Claude Code. Done! Parliament is now reviewing your code.
+
+> **Note**: Uses your existing `ANTHROPIC_API_KEY` environment variable.
+
 ## Features
 
 - **3 AI Agents** with distinct perspectives:

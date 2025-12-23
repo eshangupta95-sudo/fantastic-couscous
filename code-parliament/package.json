@@ -5,8 +5,24 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "code-parliament": "./dist/index.js",
-    "parliament-notify": "./dist/notify.js"
+    "code-parliament": "dist/index.js",
+    "parliament-notify": "dist/notify.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "mcp",
+    "claude",
+    "code-review",
+    "ai",
+    "anthropic",
+    "claude-code"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/code-parliament"
   },
   "scripts": {
     "build": "tsc && npm run copy-assets",
